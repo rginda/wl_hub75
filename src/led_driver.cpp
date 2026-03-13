@@ -12,8 +12,8 @@
 using namespace rgb_matrix;
 
 // Define the dimensions of our mock display
-const int WIDTH = 64;
-const int HEIGHT = 64;
+const int WIDTH = 128;
+const int HEIGHT = 128;
 const int BPP = 3; // RGB24
 const size_t FILE_SIZE = WIDTH * HEIGHT * BPP;
 
