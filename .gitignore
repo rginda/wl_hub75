@@ -55,3 +55,6 @@ dist/
 *.swp
 *.swo
 .DS_Store
+
+# Local copy of Pico-8
+pico-8/
