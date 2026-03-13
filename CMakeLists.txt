@@ -33,3 +33,6 @@ target_link_libraries(mock_pico8 PRIVATE Threads::Threads)
 # LED Driver executable
 add_executable(led_driver src/led_driver.cpp)
 target_link_libraries(led_driver PRIVATE Threads::Threads rgbmatrix)
+
+# Framebuffer Info utility
+add_executable(fb_info src/fb_info.c)
