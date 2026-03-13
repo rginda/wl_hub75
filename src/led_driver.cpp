@@ -19,31 +19,34 @@ const size_t FILE_SIZE = WIDTH * HEIGHT * BPP;
 
 const char* SHM_FILE = "/tmp/pico8_fb";
 
-// Array of ASCII characters ordered by increasing brightness
-const char* ASCII_CHARS = " .:-=+*#%@";
-const int NUM_CHARS = strlen(ASCII_CHARS);
-
 void render_ascii(uint8_t* buffer) {
     // Clear screen and move cursor to top left using ANSI escape codes
     std::cout << "\033[2J\033[H";
     
-    for (int y = 0; y < HEIGHT; ++y) {
+    // We'll use the upper half block character to render two vertical pixels per character cell
+    // This perfectly compensates for the roughly 1:2 aspect ratio of terminal fonts!
+    for (int y = 0; y < HEIGHT; y += 2) {
         for (int x = 0; x < WIDTH; ++x) {
-            int index = (y * WIDTH + x) * BPP;
-            uint8_t r = buffer[index    ];
-            uint8_t g = buffer[index + 1];
-            uint8_t b = buffer[index + 2];
+            int top_index = (y * WIDTH + x) * BPP;
+            uint8_t tr = buffer[top_index    ];
+            uint8_t tg = buffer[top_index + 1];
+            uint8_t tb = buffer[top_index + 2];
 
-            // Calculate luminance using standard weights
-            float luminance = (0.299 * r + 0.587 * g + 0.114 * b);
-            
-            // Map luminance (0-255) to ASCII character index
-            int char_index = static_cast<int>((luminance / 255.0f) * (NUM_CHARS - 1));
-            
-            // Output two characters per pixel to account for terminal font aspect ratio (roughly 1:2)
-            std::cout << ASCII_CHARS[char_index] << ASCII_CHARS[char_index];
+            // If we're at the bottom row and height is odd, bottom pixel is black
+            uint8_t br = 0, bg = 0, bb = 0;
+            if (y + 1 < HEIGHT) {
+                int index = ((y + 1) * WIDTH + x) * BPP;
+                br = buffer[index    ];
+                bg = buffer[index + 1];
+                bb = buffer[index + 2];
+            }
+
+            // Foreground color (top pixel), Background color (bottom pixel), and Upper Half Block char
+            std::cout << "\033[38;2;" << (int)tr << ";" << (int)tg << ";" << (int)tb 
+                      << ";48;2;" << (int)br << ";" << (int)bg << ";" << (int)bb << "m"
+                      << "\xE2\x96\x80"; // U+2580 Upper Half Block
         }
-        std::cout << std::endl;
+        std::cout << "\033[0m" << std::endl; // Reset color at end of line
     }
 }
 
