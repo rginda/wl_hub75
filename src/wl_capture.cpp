@@ -102,7 +102,8 @@ static void registry_handle_global(void *data, struct wl_registry *r, uint32_t n
             output = (struct wl_output *)wl_registry_bind(r, name, &wl_output_interface, 1);
         }
     } else if (strcmp(interface, zwlr_screencopy_manager_v1_interface.name) == 0) {
-        screencopy_manager = (struct zwlr_screencopy_manager_v1 *)wl_registry_bind(r, name, &zwlr_screencopy_manager_v1_interface, 1);
+        // Bind to version 3 to support capture_output_region and other modern features
+        screencopy_manager = (struct zwlr_screencopy_manager_v1 *)wl_registry_bind(r, name, &zwlr_screencopy_manager_v1_interface, 3);
     }
 }
 
