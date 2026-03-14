@@ -65,11 +65,21 @@ void render_matrix(Canvas *canvas, uint8_t* buffer) {
 int main(int argc, char *argv[]) {
     bool ascii_mode = false;
     bool info_mode = false;
+    bool stretch_mode = false;
+    int crop_x = 0, crop_y = 0, crop_w = 0, crop_h = 0;
+
     for (int i = 1; i < argc; ++i) {
         if (strcmp(argv[i], "--ascii") == 0) {
             ascii_mode = true;
         } else if (strcmp(argv[i], "--info") == 0) {
             info_mode = true;
+        } else if (strcmp(argv[i], "--stretch") == 0) {
+            stretch_mode = true;
+        } else if (strcmp(argv[i], "--crop") == 0 && i + 1 < argc) {
+            if (sscanf(argv[++i], "%d,%d,%d,%d", &crop_x, &crop_y, &crop_w, &crop_h) != 4) {
+                std::cerr << "Invalid crop format. Use --crop x,y,w,h" << std::endl;
+                return 1;
+            }
         }
     }
 
@@ -102,7 +112,7 @@ int main(int argc, char *argv[]) {
     uint8_t pico8_buffer[WIDTH * HEIGHT * BPP];
 
     if (info_mode) {
-        if (!wl_capture_frame(pico8_buffer, WIDTH, HEIGHT, BPP)) {
+        if (!wl_capture_frame(pico8_buffer, WIDTH, HEIGHT, BPP, crop_x, crop_y, crop_w, crop_h, stretch_mode)) {
             std::cerr << "Failed to capture frame from Wayland for info." << std::endl;
         }
         wl_capture_cleanup();
@@ -112,7 +122,7 @@ int main(int argc, char *argv[]) {
 
     // Infinite loop processing frames
     while (true) {
-        if (!wl_capture_frame(pico8_buffer, WIDTH, HEIGHT, BPP)) {
+        if (!wl_capture_frame(pico8_buffer, WIDTH, HEIGHT, BPP, crop_x, crop_y, crop_w, crop_h, stretch_mode)) {
             std::cerr << "Failed to capture frame from Wayland" << std::endl;
             std::this_thread::sleep_for(std::chrono::milliseconds(200));
             continue;

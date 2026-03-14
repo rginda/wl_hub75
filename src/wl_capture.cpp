@@ -156,7 +156,8 @@ void wl_capture_cleanup() {
     display = nullptr;
 }
 
-bool wl_capture_frame(uint8_t* out_buffer, int out_width, int out_height, int out_bpp) {
+bool wl_capture_frame(uint8_t* out_buffer, int out_width, int out_height, int out_bpp, 
+                      int crop_x, int crop_y, int crop_w, int crop_h, bool stretch) {
     if (!display || !screencopy_manager || !output) return false;
     
     frame = zwlr_screencopy_manager_v1_capture_output(screencopy_manager, 0, output);
@@ -188,22 +189,67 @@ bool wl_capture_frame(uint8_t* out_buffer, int out_width, int out_height, int ou
             first_frame = false;
         }
 
-        // Pico-8 scales by integer multiples until it maximizes screen space.
-        // It maintains a perfect 128x128 aspect ratio.
-        int scale = capture_height / out_height; // Max integer scale that fits height (and width since 1080p is wider)
-        if (scale < 1) scale = 1;
+        // If no crop is specified, use the entire screen
+        if (crop_w <= 0 || crop_h <= 0) {
+            crop_x = 0;
+            crop_y = 0;
+            crop_w = capture_width;
+            crop_h = capture_height;
+        }
 
-        int rendered_size = scale * out_height;
-        int x_offset = ((int)capture_width - rendered_size) / 2;
-        int y_offset = ((int)capture_height - rendered_size) / 2;
-        
+        // Clip crop to screen bounds constraints
+        if (crop_x < 0) crop_x = 0;
+        if (crop_y < 0) crop_y = 0;
+        if (crop_x + crop_w > (int)capture_width) crop_w = capture_width - crop_x;
+        if (crop_y + crop_h > (int)capture_height) crop_h = capture_height - crop_y;
+
+        // Render targets
+        int render_w = out_width;
+        int render_h = out_height;
+        int offset_x = 0;
+        int offset_y = 0;
+
+        if (!stretch) {
+            // Calculate aspect ratio preserving scaling (Letterbox / Pillarbox)
+            float crop_aspect = (float)crop_w / crop_h;
+            float out_aspect = (float)out_width / out_height;
+
+            if (crop_aspect > out_aspect) {
+                // Image is wider than matrix: Pillarbox (black bars top/bottom)
+                // Actually if crop is wider, it fits the width perfectly, so height is reduced.
+                // Wait: out_aspect is say 1:1. crop_aspect is 16:9. So crop is wider.
+                // We map width directly. Height will be scaled.
+                render_w = out_width;
+                render_h = (int)(out_width / crop_aspect);
+                offset_y = (out_height - render_h) / 2;
+            } else {
+                // Image is taller than matrix: Letterbox (black bars left/right)
+                render_h = out_height;
+                render_w = (int)(out_height * crop_aspect);
+                offset_x = (out_width - render_w) / 2;
+            }
+        }
+
         for (int y = 0; y < out_height; ++y) {
             for (int x = 0; x < out_width; ++x) {
-                // Sample exactly the top-left pixel (or center) of the integer-scaled block
-                int src_x = x_offset + (x * scale) + (scale / 2);
-                int src_y = y_offset + (y * scale) + (scale / 2);
-                
                 int dest_index = (y * out_width + x) * out_bpp;
+
+                // Check if current pixel is inside the active render area (not black bars)
+                if (x < offset_x || x >= offset_x + render_w ||
+                    y < offset_y || y >= offset_y + render_h) {
+                    out_buffer[dest_index]     = 0;
+                    out_buffer[dest_index + 1] = 0;
+                    out_buffer[dest_index + 2] = 0;
+                    continue;
+                }
+
+                // Map out_buffer coordinate to crop space
+                // (x - offset_x) / render_w gives 0.0 to 1.0 progress horizontally
+                float norm_x = (float)(x - offset_x + 0.5f) / render_w;
+                float norm_y = (float)(y - offset_y + 0.5f) / render_h;
+
+                int src_x = crop_x + (int)(norm_x * crop_w);
+                int src_y = crop_y + (int)(norm_y * crop_h);
                 
                 // Bounds guard just in case offsets went negative
                 if (src_x < 0 || src_y < 0 || src_x >= (int)capture_width || src_y >= (int)capture_height) {

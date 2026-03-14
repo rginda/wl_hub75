@@ -48,9 +48,9 @@ target_link_libraries(wl_capture PRIVATE ${WAYLAND_LDFLAGS})
 add_executable(mock_pico8 src/mock_pico8.cpp)
 target_link_libraries(mock_pico8 PRIVATE Threads::Threads)
 
-# LED Driver executable
-add_executable(led_driver src/led_driver.cpp)
-target_link_libraries(led_driver PRIVATE Threads::Threads rgbmatrix wl_capture)
+# wl_hub75 executable
+add_executable(wl_hub75 src/wl_hub75.cpp)
+target_link_libraries(wl_hub75 PRIVATE Threads::Threads rgbmatrix wl_capture)
 
 # Framebuffer Info utility
 add_executable(fb_info src/fb_info.c)
