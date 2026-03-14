@@ -39,9 +39,11 @@ This tool securely and efficiently extracts tear-free frames from any applicatio
    ```
 
 2. **Configure Permissions (Crucial!):**
-   By default, normal users cannot directly steal control of the physical GPU/TTY from an SSH session. `seatd` brokers this access securely. You must add your user to the `video`, `render`, and `seat` groups, then enable the daemon:
+   By default, normal users cannot directly steal control of the physical GPU/TTY from an SSH session. `seatd` brokers this access securely. You must add your user to the `video`, `render`, and `seat` groups. 
+   
+   Additionally, the LED matrix requires direct GPIO memory access, which requires the `kmem` and `gpio` hardware groups:
    ```bash
-   sudo usermod -aG video,render,seat $USER
+   sudo usermod -aG video,render,seat,kmem,gpio $USER
    sudo systemctl enable --now seatd
    ```
    **Important**: Log out and log back in to apply the group changes.
