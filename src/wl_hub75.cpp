@@ -112,6 +112,8 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
+    wl_capture_set_profile(profile_mode);
+
     Canvas *canvas = matrix; // Matrix itself implements canvas
 
     // Intermediate buffer to hold the 128x128 extracted frame
@@ -130,6 +132,8 @@ int main(int argc, char *argv[]) {
     auto start_time = std::chrono::steady_clock::now();
     int frame_count = 0;
     double total_capture_time = 0;
+    double total_capture_wait_time = 0;
+    double total_capture_process_time = 0;
     double total_render_time = 0;
 
     while (true) {
@@ -143,6 +147,12 @@ int main(int argc, char *argv[]) {
         }
         auto capture_end = std::chrono::steady_clock::now();
         total_capture_time += std::chrono::duration<double>(capture_end - capture_start).count();
+        
+        if (profile_mode) {
+            wl_capture_profile_data cp = wl_capture_get_last_profile();
+            total_capture_wait_time += cp.wait_time_ms / 1000.0;
+            total_capture_process_time += cp.process_time_ms / 1000.0;
+        }
 
         auto render_start = std::chrono::steady_clock::now();
         if (ascii_mode) {
@@ -163,11 +173,14 @@ int main(int argc, char *argv[]) {
                 std::cout << "FPS: " << frame_count / elapsed.count() << std::endl;
             }
             if (profile_mode) {
-                std::cout << "Profile (avg per frame) - Capture: " << (total_capture_time / frame_count) * 1000 << "ms, "
+                std::cout << "Profile (avg per frame) - Capture: " << (total_capture_time / frame_count) * 1000 << "ms "
+                          << "(Wait: " << (total_capture_wait_time / frame_count) * 1000 << "ms, Proc: " << (total_capture_process_time / frame_count) * 1000 << "ms), "
                           << "Render: " << (total_render_time / frame_count) * 1000 << "ms" << std::endl;
             }
             frame_count = 0;
             total_capture_time = 0;
+            total_capture_wait_time = 0;
+            total_capture_process_time = 0;
             total_render_time = 0;
             start_time = std::chrono::steady_clock::now();
         }

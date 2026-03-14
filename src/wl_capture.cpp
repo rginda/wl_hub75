@@ -6,6 +6,7 @@
 #include <fcntl.h>
 #include "wlr-screencopy-unstable-v1-client-protocol.h"
 #include <cstring>
+#include <chrono>
 
 // Wayland capture state
 static struct wl_display *display = nullptr;
@@ -28,6 +29,9 @@ static uint32_t capture_format = 0;
 
 static bool frame_ready = false;
 static bool frame_failed = false;
+
+static bool profiling_enabled = false;
+static wl_capture_profile_data last_profile = {0, 0};
 
 // Allocates anonymous memory mapping for SHM transfers
 static int allocate_shm_file(size_t size) {
@@ -160,6 +164,8 @@ bool wl_capture_frame(uint8_t* out_buffer, int out_width, int out_height, int ou
                       int crop_x, int crop_y, int crop_w, int crop_h, bool stretch) {
     if (!display || !screencopy_manager || !output) return false;
     
+    auto wait_start = std::chrono::steady_clock::now();
+
     frame = zwlr_screencopy_manager_v1_capture_output(screencopy_manager, 0, output);
     if (!frame) return false;
     
@@ -175,8 +181,14 @@ bool wl_capture_frame(uint8_t* out_buffer, int out_width, int out_height, int ou
         }
     }
     
+    auto wait_end = std::chrono::steady_clock::now();
+    if (profiling_enabled) {
+        last_profile.wait_time_ms = std::chrono::duration<double, std::milli>(wait_end - wait_start).count();
+    }
+
     bool ret = false;
     if (frame_ready && shm_data && capture_width > 0 && capture_height > 0) {
+        auto process_start = std::chrono::steady_clock::now();
         int bytes_per_pixel = capture_stride / capture_width;
         
         static bool first_frame = true;
@@ -279,6 +291,10 @@ bool wl_capture_frame(uint8_t* out_buffer, int out_width, int out_height, int ou
                 }
             }
         }
+        auto process_end = std::chrono::steady_clock::now();
+        if (profiling_enabled) {
+            last_profile.process_time_ms = std::chrono::duration<double, std::milli>(process_end - process_start).count();
+        }
         ret = true;
     }
     
@@ -288,4 +304,12 @@ bool wl_capture_frame(uint8_t* out_buffer, int out_width, int out_height, int ou
     }
     
     return ret;
+}
+
+void wl_capture_set_profile(bool enable) {
+    profiling_enabled = enable;
+}
+
+wl_capture_profile_data wl_capture_get_last_profile() {
+    return last_profile;
 }
