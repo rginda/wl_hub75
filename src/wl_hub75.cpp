@@ -66,6 +66,7 @@ int main(int argc, char *argv[]) {
     bool ascii_mode = false;
     bool info_mode = false;
     bool stretch_mode = false;
+    bool fps_mode = false;
     int crop_x = 0, crop_y = 0, crop_w = 0, crop_h = 0;
 
     for (int i = 1; i < argc; ++i) {
@@ -75,6 +76,8 @@ int main(int argc, char *argv[]) {
             info_mode = true;
         } else if (strcmp(argv[i], "--stretch") == 0) {
             stretch_mode = true;
+        } else if (strcmp(argv[i], "--fps") == 0) {
+            fps_mode = true;
         } else if (strcmp(argv[i], "--crop") == 0 && i + 1 < argc) {
             if (sscanf(argv[++i], "%d,%d,%d,%d", &crop_x, &crop_y, &crop_w, &crop_h) != 4) {
                 std::cerr << "Invalid crop format. Use --crop x,y,w,h" << std::endl;
@@ -99,7 +102,7 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    std::cout << "Starting LED Driver. Listening to Wayland Display..." << std::endl;
+    std::cout << "Starting LED Driver! Listening to Wayland Display..." << std::endl;
 
     if (!wl_capture_init()) {
         if (matrix) delete matrix;
@@ -121,6 +124,9 @@ int main(int argc, char *argv[]) {
     }
 
     // Infinite loop processing frames
+    auto start_time = std::chrono::steady_clock::now();
+    int frame_count = 0;
+
     while (true) {
         if (!wl_capture_frame(frame_buffer, WIDTH, HEIGHT, BPP, crop_x, crop_y, crop_w, crop_h, stretch_mode)) {
             std::cerr << "Failed to capture frame from Wayland" << std::endl;
@@ -133,7 +139,16 @@ int main(int argc, char *argv[]) {
             std::this_thread::sleep_for(std::chrono::milliseconds(500)); // 2 fps
         } else {
             render_matrix(canvas, frame_buffer);
-            std::this_thread::sleep_for(std::chrono::milliseconds(16)); // ~60 fps
+            //std::this_thread::sleep_for(std::chrono::milliseconds(16)); // ~60 fps
+        }
+
+        frame_count++;
+        if (fps_mode && frame_count >= 100) {
+            auto end_time = std::chrono::steady_clock::now();
+            std::chrono::duration<double> elapsed = end_time - start_time;
+            std::cout << "FPS: " << frame_count / elapsed.count() << std::endl;
+            frame_count = 0;
+            start_time = std::chrono::steady_clock::now();
         }
     }
 
