@@ -15,3 +15,12 @@ To achieve this, we will write the LED driver process in **C++** using the `rpi-
 To make things testable before integrating the actual Pico-8 emulator, we will add an ASCII mode to the LED driver that displays the contents of the framebuffer as an ASCII art representation of the pixels in the terminal. We will also create a simple "mock Pico-8" program that generates test patterns (like a bouncing square or color wheel) and writes them to the framebuffer. This allows us to verify the framebuffer reading and rendering logic independently.
 
 **Milestone 1**: Implement the mock Pico-8 program and the LED driver. The LED driver will only implement the ASCII mode, reading pixel data from the framebuffer and displaying the contents as an ASCII art representation in the terminal.
+
+## Architecture Learnings: Framebuffer vs KMS
+During development, we discovered critical architectural limitations regarding capturing Pico-8's video output on modern Linux (specifically Raspberry Pi OS):
+
+1. **KMS Hardware Scaling**: When running Pico-8 without an X11 desktop, it utilizes the native `vc4-kms-v3d` driver (via SDL2's `kmsdrm` backend). This securely renders the 128x128 game surface *directly* to the physical DRM/KMS hardware 3D planes to be scaled for HDMI output.
+2. **The /dev/fb0 Illusion**: Because the drawing happens strictly on the GPU planes, it entirely bypasses the traditional `/dev/fb0` software memory buffer. The `/dev/fb0` node that appears is merely the fallback memory for the Linux text console running invisibly *underneath* the game.
+3. **Deprecated Ecosystem**: The historical workaround was to force Pico-8 to render in software using `SDL_VIDEODRIVER=fbcon`. However, SDL has completely removed `fbcon` support from modern releases. Additionally, standard Broadcom scraping tools like `fbcp` and `raspi2fb` fail to compile because Raspberry Pi OS removed the deprecated `Dispmanx` headers they rely on.
+
+**Resolution:** Because natively scraping the headless KMS DRM buffer is no longer feasible with standard tools, the most reliable cross-platform method to extract the pixels is to launch Pico-8 inside a headless `Xvfb` (X Virtual Framebuffer) server and read the shared memory from the X11 surface directly.
