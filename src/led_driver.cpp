@@ -1,6 +1,7 @@
 #include <iostream>
 #include <fcntl.h>
 #include <sys/mman.h>
+#include "wl_capture.h"
 #include <unistd.h>
 #include <cstring>
 #include <thread>
@@ -15,13 +16,10 @@ using namespace rgb_matrix;
 const int WIDTH = 128;
 const int HEIGHT = 128;
 const int BPP = 3; // RGB24
-const size_t FILE_SIZE = WIDTH * HEIGHT * BPP;
-
-const char* SHM_FILE = "/tmp/pico8_fb";
 
 void render_ascii(uint8_t* buffer) {
-    // Clear screen and move cursor to top left using ANSI escape codes
-    std::cout << "\033[2J\033[H";
+    // Move cursor to top left using ANSI escape codes to overwrite the previous frame
+    std::cout << "\033[H";
     
     // We'll use the upper half block character to render two vertical pixels per character cell
     // This perfectly compensates for the roughly 1:2 aspect ratio of terminal fonts!
@@ -62,11 +60,16 @@ void render_matrix(Canvas *canvas, uint8_t* buffer) {
     }
 }
 
+// extract_pico8_fb removed - handled by wl_capture now
+
 int main(int argc, char *argv[]) {
     bool ascii_mode = false;
+    bool info_mode = false;
     for (int i = 1; i < argc; ++i) {
         if (strcmp(argv[i], "--ascii") == 0) {
             ascii_mode = true;
+        } else if (strcmp(argv[i], "--info") == 0) {
+            info_mode = true;
         }
     }
 
@@ -78,7 +81,7 @@ int main(int argc, char *argv[]) {
 
     // Use CreateMatrixFromFlags to allow user to override options
     RGBMatrix *matrix = nullptr;
-    if (!ascii_mode) {
+    if (!ascii_mode && !info_mode) {
         matrix = RGBMatrix::CreateFromFlags(&argc, &argv, &matrix_options, &runtime_opt);
         if (matrix == nullptr) {
             std::cerr << "Failed to initialize LED matrix. Pass --ascii for ASCII mode." << std::endl;
@@ -86,43 +89,46 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    std::cout << "Starting LED Driver. Reading from " << SHM_FILE << std::endl;
+    std::cout << "Starting LED Driver. Listening to Wayland Display..." << std::endl;
 
-    // Open the shared memory file created by mock_pico8
-    int fd = open(SHM_FILE, O_RDONLY);
-    if (fd == -1) {
-        std::cerr << "Failed to open shared memory file: " << SHM_FILE << std::endl;
-        std::cerr << "Make sure mock_pico8 is running to create the framebuffer." << std::endl;
+    if (!wl_capture_init()) {
         if (matrix) delete matrix;
         return 1;
     }
 
-    // Memory map the file (Read only)
-    void* ptr = mmap(nullptr, FILE_SIZE, PROT_READ, MAP_SHARED, fd, 0);
-    if (ptr == MAP_FAILED) {
-        std::cerr << "Memory mapping failed." << std::endl;
-        close(fd);
-        if (matrix) delete matrix;
-        return 1;
-    }
-
-    uint8_t* buffer = static_cast<uint8_t*>(ptr);
     Canvas *canvas = matrix; // Matrix itself implements canvas
+
+    // Intermediate buffer to hold the 128x128 extracted pico8 frame
+    uint8_t pico8_buffer[WIDTH * HEIGHT * BPP];
+
+    if (info_mode) {
+        if (!wl_capture_frame(pico8_buffer, WIDTH, HEIGHT, BPP)) {
+            std::cerr << "Failed to capture frame from Wayland for info." << std::endl;
+        }
+        wl_capture_cleanup();
+        if (matrix) delete matrix;
+        return 0;
+    }
 
     // Infinite loop processing frames
     while (true) {
+        if (!wl_capture_frame(pico8_buffer, WIDTH, HEIGHT, BPP)) {
+            std::cerr << "Failed to capture frame from Wayland" << std::endl;
+            std::this_thread::sleep_for(std::chrono::milliseconds(200));
+            continue;
+        }
+
         if (ascii_mode) {
-            render_ascii(buffer);
-            std::this_thread::sleep_for(std::chrono::milliseconds(33)); // 30 fps
+            render_ascii(pico8_buffer);
+            std::this_thread::sleep_for(std::chrono::milliseconds(500)); // 2 fps
         } else {
-            render_matrix(canvas, buffer);
+            render_matrix(canvas, pico8_buffer);
             std::this_thread::sleep_for(std::chrono::milliseconds(16)); // ~60 fps
         }
     }
 
     // Cleanup
-    munmap(ptr, FILE_SIZE);
-    close(fd);
+    wl_capture_cleanup();
     if (matrix) delete matrix;
 
     return 0;
