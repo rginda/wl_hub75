@@ -55,24 +55,32 @@ This tool securely and efficiently extracts tear-free frames from any applicatio
 
 ## Usage
 
-First, launch your target application (e.g., the Pico-8 emulator, a terminal, or a browser) inside the `cage` compositor:
+Because the `rpi-rgb-led-matrix` driver requires direct hardware access to the GPIO pins, it historically needed `sudo`. However, running as `root` breaks access to your normal user's Wayland socket! 
+
+Instead of `sudo`, grant the binary the exact capabilities it needs:
+
+```bash
+sudo setcap 'cap_sys_rawio,cap_sys_nice=eip' build/wl_hub75
+```
+
+Now, first launch your target application (e.g., the Pico-8 emulator, a terminal, or a browser) inside the `cage` compositor:
 
 ```bash
 cage -- ./pico-8/pico8_64 -splore
 ```
 
-Then, in a second terminal session, launch `wl_hub75` to intercept the display and push it to the LED matrix:
+Then, in a second terminal session, launch `wl_hub75` as your normal user to intercept the display and push it to the LED matrix:
 
 ```bash
 # Basic Usage: Auto-scales and letterboxes the entire 1080p Wayland display
-WAYLAND_DISPLAY=wayland-1 sudo ./build/wl_hub75
+WAYLAND_DISPLAY=wayland-1 ./build/wl_hub75
 
 # Stretch Mode: Ignores aspect ratio and forces the image to fill the matrix
-WAYLAND_DISPLAY=wayland-1 sudo ./build/wl_hub75 --stretch
+WAYLAND_DISPLAY=wayland-1 ./build/wl_hub75 --stretch
 
 # Precision Crop: Only captures a specific 1024x1024 region (x=448, y=28)
 # Perfect for exact integer-scaling of apps like Pico-8!
-WAYLAND_DISPLAY=wayland-1 sudo ./build/wl_hub75 --crop 448,28,1024,1024
+WAYLAND_DISPLAY=wayland-1 ./build/wl_hub75 --crop 448,28,1024,1024
 
 # ASCII Test Mode: Renders to your terminal instead of the physical matrix for debugging
 WAYLAND_DISPLAY=wayland-1 ./build/wl_hub75 --ascii
