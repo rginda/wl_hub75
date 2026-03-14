@@ -68,6 +68,7 @@ int main(int argc, char *argv[]) {
     bool stretch_mode = false;
     bool fps_mode = false;
     bool profile_mode = false;
+    int capture_rate = 30;
     int crop_x = 0, crop_y = 0, crop_w = 0, crop_h = 0;
 
     for (int i = 1; i < argc; ++i) {
@@ -81,6 +82,8 @@ int main(int argc, char *argv[]) {
             fps_mode = true;
         } else if (strcmp(argv[i], "--profile") == 0) {
             profile_mode = true;
+        } else if (strcmp(argv[i], "--capture-rate") == 0 && i + 1 < argc) {
+            capture_rate = atoi(argv[++i]);
         } else if (strcmp(argv[i], "--crop") == 0 && i + 1 < argc) {
             if (sscanf(argv[++i], "%d,%d,%d,%d", &crop_x, &crop_y, &crop_w, &crop_h) != 4) {
                 std::cerr << "Invalid crop format. Use --crop x,y,w,h" << std::endl;
@@ -114,7 +117,8 @@ int main(int argc, char *argv[]) {
 
     wl_capture_set_profile(profile_mode);
 
-    Canvas *canvas = matrix; // Matrix itself implements canvas
+    FrameCanvas *offscreen = nullptr;
+    if (matrix) offscreen = matrix->CreateFrameCanvas();
 
     // Intermediate buffer to hold the 128x128 extracted frame
     uint8_t frame_buffer[WIDTH * HEIGHT * BPP];
@@ -136,22 +140,29 @@ int main(int argc, char *argv[]) {
     double total_capture_process_time = 0;
     double total_render_time = 0;
 
+    auto last_capture_time = std::chrono::steady_clock::now();
+    uint32_t capture_interval_ms = (capture_rate > 0) ? (1000 / capture_rate) : 0;
+
     while (true) {
-        auto loop_start = std::chrono::steady_clock::now();
-        
-        auto capture_start = std::chrono::steady_clock::now();
-        if (!wl_capture_frame(frame_buffer, WIDTH, HEIGHT, BPP, crop_x, crop_y, crop_w, crop_h, stretch_mode)) {
-            std::cerr << "Failed to capture frame from Wayland" << std::endl;
-            std::this_thread::sleep_for(std::chrono::milliseconds(200));
-            continue;
-        }
-        auto capture_end = std::chrono::steady_clock::now();
-        total_capture_time += std::chrono::duration<double>(capture_end - capture_start).count();
-        
-        if (profile_mode) {
-            wl_capture_profile_data cp = wl_capture_get_last_profile();
-            total_capture_wait_time += cp.wait_time_ms / 1000.0;
-            total_capture_process_time += cp.process_time_ms / 1000.0;
+        auto now = std::chrono::steady_clock::now();
+        bool should_capture = std::chrono::duration_cast<std::chrono::milliseconds>(now - last_capture_time).count() >= capture_interval_ms;
+
+        if (should_capture) {
+            auto capture_start = std::chrono::steady_clock::now();
+            if (!wl_capture_frame(frame_buffer, WIDTH, HEIGHT, BPP, crop_x, crop_y, crop_w, crop_h, stretch_mode)) {
+                std::cerr << "Failed to capture frame from Wayland" << std::endl;
+                std::this_thread::sleep_for(std::chrono::milliseconds(200));
+                continue;
+            }
+            auto capture_end = std::chrono::steady_clock::now();
+            total_capture_time += std::chrono::duration<double>(capture_end - capture_start).count();
+            
+            if (profile_mode) {
+                wl_capture_profile_data cp = wl_capture_get_last_profile();
+                total_capture_wait_time += cp.wait_time_ms / 1000.0;
+                total_capture_process_time += cp.process_time_ms / 1000.0;
+            }
+            last_capture_time = capture_end;
         }
 
         auto render_start = std::chrono::steady_clock::now();
@@ -159,8 +170,8 @@ int main(int argc, char *argv[]) {
             render_ascii(frame_buffer);
             std::this_thread::sleep_for(std::chrono::milliseconds(500)); // 2 fps
         } else {
-            render_matrix(canvas, frame_buffer);
-            //std::this_thread::sleep_for(std::chrono::milliseconds(16)); // ~60 fps
+            render_matrix(offscreen, frame_buffer);
+            offscreen = matrix->SwapOnVSync(offscreen);
         }
         auto render_end = std::chrono::steady_clock::now();
         total_render_time += std::chrono::duration<double>(render_end - render_start).count();
