@@ -46,7 +46,14 @@ This tool securely and efficiently extracts tear-free frames from any applicatio
    sudo usermod -aG video,render,seat,kmem,gpio $USER
    sudo systemctl enable --now seatd
    ```
-   **Important**: Log out and log back in to apply the group changes.
+   
+   Finally, to allow the `gpio` group to access the hardware PWM timers for flicker-free display, you must add a `udev` rule:
+   ```bash
+   echo 'SUBSYSTEM=="pwm*", PROGRAM="/bin/sh -c '\''chown -R root:gpio /sys/class/pwm && chmod -R 770 /sys/class/pwm; chown -R root:gpio /sys/devices/platform/soc/*.pwm/pwm/pwmchip* && chmod -R 770 /sys/devices/platform/soc/*.pwm/pwm/pwmchip*'\''"' | sudo tee /etc/udev/rules.d/99-pwm.rules
+   sudo udevadm control --reload-rules
+   sudo udevadm trigger
+   ```
+   **Important**: Log out and log back in, and optionally reboot your Pi, to apply the group and udev changes.
 
 3. **Build:**
    ```bash
@@ -57,21 +64,30 @@ This tool securely and efficiently extracts tear-free frames from any applicatio
 
 ## Usage
 
-Because the `rpi-rgb-led-matrix` driver requires direct hardware access to the GPIO pins, it historically needed `sudo`. However, running as `root` breaks access to your normal user's Wayland socket! 
+Because the `rpi-rgb-led-matrix` driver requires pristine hardware access to configure PWM timers, it attempts to open `/dev/mem`. By default, this fails for any user other than `root`, and running as `root` (via `sudo`) breaks access to your normal user's Wayland socket!
 
-Instead of `sudo`, grant the binary the exact capabilities it needs:
+To solve this catch-22, we must grant your user and the executable the exact Linux capabilities and groups required to access `/dev/mem` natively:
 
-```bash
-sudo setcap 'cap_sys_rawio,cap_sys_nice=eip' build/wl_hub75
-```
+1. **User Group (One-time setup):**
+   Your user *must* be in the `kmem` group to read `/dev/mem`:
+   ```bash
+   sudo usermod -aG kmem $USER
+   # You MUST log out and log back in for this to take effect!
+   ```
 
-Now, first launch your target application (e.g., the Pico-8 emulator, a terminal, or a browser) inside the `cage` compositor:
+2. **Executable Capabilities (Every time you recompile):**
+   Grant the compiled binary hardware I/O and priority privileges:
+   ```bash
+   sudo setcap 'cap_sys_rawio,cap_sys_nice=eip' build/wl_hub75
+   ```
+
+With those permissions set, first launch your target application (e.g., the Pico-8 emulator, a terminal, or a browser) inside the `cage` compositor as your normal user:
 
 ```bash
 cage -- ./pico-8/pico8_64 -splore
 ```
 
-Then, in a second terminal session, launch `wl_hub75` as your normal user to intercept the display and push it to the LED matrix:
+Then, in a second terminal session, launch `wl_hub75` normally:
 
 ```bash
 # Basic Usage: Auto-scales and letterboxes the entire 1080p Wayland display
