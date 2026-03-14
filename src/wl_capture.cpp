@@ -166,7 +166,14 @@ bool wl_capture_frame(uint8_t* out_buffer, int out_width, int out_height, int ou
     
     auto wait_start = std::chrono::steady_clock::now();
 
-    frame = zwlr_screencopy_manager_v1_capture_output(screencopy_manager, 0, output);
+    bool is_region_capture = (crop_w > 0 && crop_h > 0);
+
+    if (is_region_capture) {
+        frame = zwlr_screencopy_manager_v1_capture_output_region(screencopy_manager, 0, output, crop_x, crop_y, crop_w, crop_h);
+    } else {
+        frame = zwlr_screencopy_manager_v1_capture_output(screencopy_manager, 0, output);
+    }
+
     if (!frame) return false;
     
     zwlr_screencopy_frame_v1_add_listener(frame, &frame_listener, nullptr);
@@ -197,23 +204,38 @@ bool wl_capture_frame(uint8_t* out_buffer, int out_width, int out_height, int ou
                       << ", Height: " << capture_height 
                       << ", Stride: " << capture_stride 
                       << ", BPP: " << bytes_per_pixel 
-                      << ", Format: " << capture_format << std::endl;
+                      << ", Format: " << capture_format 
+                      << (is_region_capture ? " (Region Capture)" : " (Full Capture)") << std::endl;
             first_frame = false;
         }
 
-        // If no crop is specified, use the entire screen
-        if (crop_w <= 0 || crop_h <= 0) {
-            crop_x = 0;
-            crop_y = 0;
-            crop_w = capture_width;
-            crop_h = capture_height;
+        // Processing variables
+        int proc_crop_x = crop_x;
+        int proc_crop_y = crop_y;
+        int proc_crop_w = crop_w;
+        int proc_crop_h = crop_h;
+
+        if (is_region_capture) {
+            // If we did a region capture, the source buffer starts at 0,0 and has size capture_width x capture_height
+            proc_crop_x = 0;
+            proc_crop_y = 0;
+            proc_crop_w = capture_width;
+            proc_crop_h = capture_height;
+        } else if (proc_crop_w <= 0 || proc_crop_h <= 0) {
+            // Full capture, no crop specified, use entire screen
+            proc_crop_x = 0;
+            proc_crop_y = 0;
+            proc_crop_w = capture_width;
+            proc_crop_h = capture_height;
         }
 
-        // Clip crop to screen bounds constraints
-        if (crop_x < 0) crop_x = 0;
-        if (crop_y < 0) crop_y = 0;
-        if (crop_x + crop_w > (int)capture_width) crop_w = capture_width - crop_x;
-        if (crop_y + crop_h > (int)capture_height) crop_h = capture_height - crop_y;
+        // Clip crop to screen bounds constraints (only for full capture)
+        if (!is_region_capture) {
+            if (proc_crop_x < 0) proc_crop_x = 0;
+            if (proc_crop_y < 0) proc_crop_y = 0;
+            if (proc_crop_x + proc_crop_w > (int)capture_width) proc_crop_w = capture_width - proc_crop_x;
+            if (proc_crop_y + proc_crop_h > (int)capture_height) proc_crop_h = capture_height - proc_crop_y;
+        }
 
         // Render targets
         int render_w = out_width;
@@ -223,14 +245,11 @@ bool wl_capture_frame(uint8_t* out_buffer, int out_width, int out_height, int ou
 
         if (!stretch) {
             // Calculate aspect ratio preserving scaling (Letterbox / Pillarbox)
-            float crop_aspect = (float)crop_w / crop_h;
+            float crop_aspect = (float)proc_crop_w / proc_crop_h;
             float out_aspect = (float)out_width / out_height;
 
             if (crop_aspect > out_aspect) {
                 // Image is wider than matrix: Pillarbox (black bars top/bottom)
-                // Actually if crop is wider, it fits the width perfectly, so height is reduced.
-                // Wait: out_aspect is say 1:1. crop_aspect is 16:9. So crop is wider.
-                // We map width directly. Height will be scaled.
                 render_w = out_width;
                 render_h = (int)(out_width / crop_aspect);
                 offset_y = (out_height - render_h) / 2;
@@ -260,10 +279,10 @@ bool wl_capture_frame(uint8_t* out_buffer, int out_width, int out_height, int ou
                 float norm_x = (float)(x - offset_x + 0.5f) / render_w;
                 float norm_y = (float)(y - offset_y + 0.5f) / render_h;
 
-                int src_x = crop_x + (int)(norm_x * crop_w);
-                int src_y = crop_y + (int)(norm_y * crop_h);
+                int src_x = proc_crop_x + (int)(norm_x * proc_crop_w);
+                int src_y = proc_crop_y + (int)(norm_y * proc_crop_h);
                 
-                // Bounds guard just in case offsets went negative
+                // Bounds guard
                 if (src_x < 0 || src_y < 0 || src_x >= (int)capture_width || src_y >= (int)capture_height) {
                     out_buffer[dest_index]     = 0;
                     out_buffer[dest_index + 1] = 0;
