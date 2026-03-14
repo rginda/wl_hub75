@@ -86,11 +86,26 @@ static void frame_handle_failed(void *data, struct zwlr_screencopy_frame_v1 *f) 
     frame_failed = true;
 }
 
+static void frame_handle_damage(void *data, struct zwlr_screencopy_frame_v1 *f, uint32_t x, uint32_t y, uint32_t width, uint32_t height) {
+    // We don't use damage info yet, just full frames
+}
+
+static void frame_handle_linux_dmabuf(void *data, struct zwlr_screencopy_frame_v1 *f, uint32_t format, uint32_t width, uint32_t height) {
+    // We only support SHM for now
+}
+
+static void frame_handle_buffer_done(void *data, struct zwlr_screencopy_frame_v1 *f) {
+    // Only used for buffer negotiation in some versions
+}
+
 static const struct zwlr_screencopy_frame_v1_listener frame_listener = {
     .buffer = frame_handle_buffer,
     .flags = frame_handle_flags,
     .ready = frame_handle_ready,
     .failed = frame_handle_failed,
+    .damage = frame_handle_damage,
+    .linux_dmabuf = frame_handle_linux_dmabuf,
+    .buffer_done = frame_handle_buffer_done,
 };
 
 // Registry callbacks to find required globals
