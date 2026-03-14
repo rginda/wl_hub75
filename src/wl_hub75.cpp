@@ -108,11 +108,11 @@ int main(int argc, char *argv[]) {
 
     Canvas *canvas = matrix; // Matrix itself implements canvas
 
-    // Intermediate buffer to hold the 128x128 extracted pico8 frame
-    uint8_t pico8_buffer[WIDTH * HEIGHT * BPP];
+    // Intermediate buffer to hold the 128x128 extracted frame
+    uint8_t frame_buffer[WIDTH * HEIGHT * BPP];
 
     if (info_mode) {
-        if (!wl_capture_frame(pico8_buffer, WIDTH, HEIGHT, BPP, crop_x, crop_y, crop_w, crop_h, stretch_mode)) {
+        if (!wl_capture_frame(frame_buffer, WIDTH, HEIGHT, BPP, crop_x, crop_y, crop_w, crop_h, stretch_mode)) {
             std::cerr << "Failed to capture frame from Wayland for info." << std::endl;
         }
         wl_capture_cleanup();
@@ -122,17 +122,17 @@ int main(int argc, char *argv[]) {
 
     // Infinite loop processing frames
     while (true) {
-        if (!wl_capture_frame(pico8_buffer, WIDTH, HEIGHT, BPP, crop_x, crop_y, crop_w, crop_h, stretch_mode)) {
+        if (!wl_capture_frame(frame_buffer, WIDTH, HEIGHT, BPP, crop_x, crop_y, crop_w, crop_h, stretch_mode)) {
             std::cerr << "Failed to capture frame from Wayland" << std::endl;
             std::this_thread::sleep_for(std::chrono::milliseconds(200));
             continue;
         }
 
         if (ascii_mode) {
-            render_ascii(pico8_buffer);
+            render_ascii(frame_buffer);
             std::this_thread::sleep_for(std::chrono::milliseconds(500)); // 2 fps
         } else {
-            render_matrix(canvas, pico8_buffer);
+            render_matrix(canvas, frame_buffer);
             std::this_thread::sleep_for(std::chrono::milliseconds(16)); // ~60 fps
         }
     }
