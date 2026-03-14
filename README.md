@@ -1,26 +1,71 @@
-The goal of this project is to display the output of the [Pico-8](https://lexaloffle.com/pico-8) emulator on a [Hub75](https://en.wikipedia.org/wiki/Hub75) LED display.
+# wl_hub75
 
-A Raspberry Pi 4 is used as the platform to run Pico-8 and drive the LED display. 
+A high-performance, generalized Wayland capture utility for displaying screen output on Hub75 LED matrices via a Raspberry Pi.
 
-Timing is critical to driving the LED display, so we would like to do this with as little overhead as possible.  Ideally we can avoid running a desktop environment.
+This tool securely and efficiently extracts tear-free frames from any application running in a Wayland Kiosk compositor (like `cage`) and perfectly maps them to a physical LED matrix using the `rpi-rgb-led-matrix` library.
 
-The hzeller's rpi-rgb-led-matrix library is used to drive the LED display.  This library requires root access or the CAP_SYS_RAWIO capability to access the PWM hardware.  It also prefers to have CAP_SYS_NICE, in order to avoid being starved of CPU time by other processes.
+## Features
 
-Ideally the Pico-8 emulator would run in a separate process from the LED driver, in order to isolate the timing-critical LED driver from the Pico-8 emulator, and reduce the risk of the escalated capabilities required of the LED driver.
+- **Zero-Overhead Native Capture**: Directly intercepts hardware-accelerated GUI frames via Wayland's `wlr-screencopy-unstable-v1` protocol without polling or memory copying `/dev/fb0`.
+- **Dynamic Letterboxing**: Automatically computes aspect ratios to beautifully letterbox or pillarbox widescreen sources down to your matrix's physical size without stretching.
+- **Precision Cropping**: Focus on a specific region of your monitor, effectively turning the matrix into a customizable magnifying glass. 
+- **Aspect Ratio Stretching**: Completely optionally stretch the source video to maximize LED engagement ignoring geometric ratios.
 
-Pico-8 is built with SDL2, which includes a modular driver architecture.  SDL2 includes drivers for directfb, kmsdrm, and one called "raspberry" that appears to render directly to the Raspberry Pi without requiring a window manager.
+## Requirements
 
-To achieve this, we will write the LED driver process in **C++** using the `rpi-rgb-led-matrix` library. We will explore using a standard Linux framebuffer (e.g., `/dev/fbX`) to receive pixel data from the Pico-8 emulator rather than creating our own custom IPC mechanism. The LED driver can `mmap` this framebuffer and copy the pixels to the LED display. If standard Linux framebuffer support turns out to be deprecated or problematic on modern Raspberry Pi OS releases, we will explore using `kmsdrm` as an alternative.
+* **Hardware:** Raspberry Pi (3/4/5) with supported Hub75 LED matrix controller hardware.
+* **Libraries**:
+  * `libwayland-client` & `wayland-protocols`
+  * `cage` (Wayland Kiosk Compositor)
+  * `seatd` (Secure User-space Device access)
+  * hzeller's `rpi-rgb-led-matrix`
 
-To make things testable before integrating the actual Pico-8 emulator, we will add an ASCII mode to the LED driver that displays the contents of the framebuffer as an ASCII art representation of the pixels in the terminal. We will also create a simple "mock Pico-8" program that generates test patterns (like a bouncing square or color wheel) and writes them to the framebuffer. This allows us to verify the framebuffer reading and rendering logic independently.
+## Installation & Setup
 
-**Milestone 1**: Implement the mock Pico-8 program and the LED driver. The LED driver will only implement the ASCII mode, reading pixel data from the framebuffer and displaying the contents as an ASCII art representation in the terminal.
+1. **Install Dependencies:**
+   ```bash
+   sudo apt-get install -y libwayland-dev wayland-protocols cage seatd
+   ```
 
-## Architecture Learnings: Framebuffer vs KMS
-During development, we discovered critical architectural limitations regarding capturing Pico-8's video output on modern Linux (specifically Raspberry Pi OS):
+2. **Configure Permissions (Crucial!):**
+   By default, normal users cannot directly steal control of the physical GPU/TTY from an SSH session. `seatd` brokers this access securely. You must add your user to the `video`, `render`, and `seat` groups, then enable the daemon:
+   ```bash
+   sudo usermod -aG video,render,seat $USER
+   sudo systemctl enable --now seatd
+   ```
+   **Important**: Log out and log back in to apply the group changes.
 
-1. **KMS Hardware Scaling**: When running Pico-8 without an X11 desktop, it utilizes the native `vc4-kms-v3d` driver (via SDL2's `kmsdrm` backend). This securely renders the 128x128 game surface *directly* to the physical DRM/KMS hardware 3D planes to be scaled for HDMI output.
-2. **The /dev/fb0 Illusion**: Because the drawing happens strictly on the GPU planes, it entirely bypasses the traditional `/dev/fb0` software memory buffer. The `/dev/fb0` node that appears is merely the fallback memory for the Linux text console running invisibly *underneath* the game.
-3. **Deprecated Ecosystem**: The historical workaround was to force Pico-8 to render in software using `SDL_VIDEODRIVER=fbcon`. However, SDL has completely removed `fbcon` support from modern releases. Additionally, standard Broadcom scraping tools like `fbcp` and `raspi2fb` fail to compile because Raspberry Pi OS removed the deprecated `Dispmanx` headers they rely on.
+3. **Build:**
+   ```bash
+   mkdir -p build && cd build
+   cmake ..
+   make
+   ```
 
-**Resolution:** Natively scraping the headless KMS DRM buffer is no longer feasible with standard tools or `fbcon`. Instead of falling back to legacy X11, the modern, high-performance architecture is to utilize a lightweight Wayland Kiosk compositor like `cage`. `cage` can run Pico-8 fullscreen directly on the DRM hardware planes without a desktop environment, and the LED driver can securely extract tear-free frames using the native Wayland `wlr-screencopy-unstable-v1` protocol.
+## Usage
+
+First, launch your target application (e.g., the Pico-8 emulator, a terminal, or a browser) inside the `cage` compositor:
+
+```bash
+cage -- ./pico-8/pico8_64 -splore
+```
+
+Then, in a second terminal session, launch `wl_hub75` to intercept the display and push it to the LED matrix:
+
+```bash
+# Basic Usage: Auto-scales and letterboxes the entire 1080p Wayland display
+WAYLAND_DISPLAY=wayland-1 sudo ./build/wl_hub75
+
+# Stretch Mode: Ignores aspect ratio and forces the image to fill the matrix
+WAYLAND_DISPLAY=wayland-1 sudo ./build/wl_hub75 --stretch
+
+# Precision Crop: Only captures a specific 1024x1024 region (x=448, y=28)
+# Perfect for exact integer-scaling of apps like Pico-8!
+WAYLAND_DISPLAY=wayland-1 sudo ./build/wl_hub75 --crop 448,28,1024,1024
+
+# ASCII Test Mode: Renders to your terminal instead of the physical matrix for debugging
+WAYLAND_DISPLAY=wayland-1 ./build/wl_hub75 --ascii
+```
+
+## History & Design
+For an architectural deep-dive into why standard Linux framebuffer (`/dev/fb0`) parsing was abandoned in favor of Wayland/KMS DRM, see the [DESIGN_LOG.md](DESIGN_LOG.md).
