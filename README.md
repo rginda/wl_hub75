@@ -22,7 +22,18 @@ This tool securely and efficiently extracts tear-free frames from any applicatio
 
 ## Installation & Setup
 
-1. **Install Dependencies:**
+1. **Fetch the Repository & Submodules:**
+   Because the LED driver relies on hzeller's `rpi-rgb-led-matrix` as a Git submodule, you must initialize it:
+   ```bash
+   # If cloning fresh:
+   git clone --recursive git@github.com:rginda/wl_hub75.git
+   cd wl_hub75
+   
+   # Or, if you already cloned the repo normally:
+   git submodule update --init --recursive
+   ```
+
+2. **Install Dependencies:**
    ```bash
    sudo apt-get install -y libwayland-dev wayland-protocols cage seatd
    ```
